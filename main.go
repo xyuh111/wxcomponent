@@ -1,20 +1,44 @@
 package main
 
 import (
-	"fmt"
-	"log"
-	"net/http"
-	"wxcloudrun-golang/db"
-	"wxcloudrun-golang/service"
+	"github.com/WeixinCloud/wxcloudrun-wxcomponent/comm/inits"
+	"github.com/WeixinCloud/wxcloudrun-wxcomponent/comm/log"
+	"github.com/WeixinCloud/wxcloudrun-wxcomponent/routers"
+	_ "github.com/joho/godotenv/autoload"
+	"golang.org/x/sync/errgroup"
 )
 
 func main() {
-	if err := db.Init(); err != nil {
-		panic(fmt.Sprintf("mysql init failed with %+v", err))
+	log.Infof("system begin")
+	if err := inits.Init(); err != nil {
+		log.Errorf("inits failed, err:%v", err)
+		return
 	}
+	log.Infof("inits.Init Succ")
 
-	http.HandleFunc("/", service.IndexHandler)
-	http.HandleFunc("/api/count", service.CounterHandler)
+	var g errgroup.Group
 
-	log.Fatal(http.ListenAndServe(":80", nil))
+	// 内部服务
+	g.Go(func() error {
+		r := routers.InnerServiceInit()
+		if err := r.Run("127.0.0.1:8081"); err != nil {
+			log.Error("startup inner service failed, err:%v", err)
+			return err
+		}
+		return nil
+	})
+
+	// 外部服务
+	g.Go(func() error {
+		r := routers.Init()
+		if err := r.Run(":80"); err != nil {
+			log.Error("startup service failed, err:%v", err)
+			return err
+		}
+		return nil
+	})
+
+	if err := g.Wait(); err != nil {
+		log.Error(err)
+	}
 }
